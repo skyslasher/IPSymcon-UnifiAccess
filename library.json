@@ -1,15 +1,12 @@
 {
     "id": "{F8E2A1B0-3C4D-5E6F-7890-ABCDEF123456}",
-    "name": "UniFi Access",
     "author": "Andreas Hahn",
+    "name": "UniFi Access",
+    "url": "https://github.com/skyslasher/IPSymcon-UnifiAccess",
     "compatibility": {
         "version": "7.0"
     },
     "version": "1.0",
-    "vendor": "UniFi Access",
-    "aliases": [
-        "Unifi Access",
-        "UniFi Access Besucher"
-    ],
-    "url": "https://github.com/skyslasher/IPSymcon-UnifiAccess"
+    "build": 1,
+    "date": 1749043200
 }
