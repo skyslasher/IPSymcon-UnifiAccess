@@ -9,6 +9,9 @@ class UnifiAccessClient
 {
     public const PIN_REMARK_PREFIX = 'PIN:';
 
+    /** @var array<int, string> */
+    private const VISITOR_LIST_EXPAND = ['pin_code', 'resource', 'schedule'];
+
     private const TOKEN_HELP = 'API-Token unter UniFi OS → Access → Einstellungen → Allgemein → Erweitert → API anlegen '
         . '(nicht unter Einstellungen → Control Plane → Integrationen). '
         . 'Benötigte Berechtigungen: view:space, view:policy, view:visitor, edit:visitor, edit:credential.';
@@ -150,11 +153,17 @@ class UnifiAccessClient
             $response = $this->request('GET', '/visitors', null, [
                 'page_num' => (string) $page,
                 'page_size' => (string) $pageSize,
-                'expand[]' => ['pin_code'],
+                'expand[]' => self::VISITOR_LIST_EXPAND,
             ]);
 
             foreach ($response['data'] ?? [] as $visitor) {
-                if (($visitor['remarks'] ?? '') === $needle) {
+                if (!is_array($visitor)) {
+                    continue;
+                }
+
+                $visitor = $this->ensureVisitorRemarks($visitor);
+
+                if (self::pinFromRemark(isset($visitor['remarks']) ? (string) $visitor['remarks'] : null) === $pin) {
                     return $visitor;
                 }
             }
@@ -189,7 +198,7 @@ class UnifiAccessClient
             $response = $this->request('GET', '/visitors', null, [
                 'page_num' => (string) $page,
                 'page_size' => (string) $pageSize,
-                'expand[]' => ['pin_code', 'resource', 'schedule'],
+                'expand[]' => self::VISITOR_LIST_EXPAND,
             ]);
 
             foreach ($response['data'] ?? [] as $visitor) {
@@ -197,7 +206,7 @@ class UnifiAccessClient
                     continue;
                 }
 
-                $visitors[] = $this->normalizeVisitorEntry($visitor);
+                $visitors[] = $this->normalizeVisitorEntry($this->ensureVisitorRemarks($visitor));
             }
 
             $total = (int) ($response['pagination']['total'] ?? 0);
@@ -302,10 +311,37 @@ class UnifiAccessClient
     public function getVisitor(string $visitorId): array
     {
         $response = $this->request('GET', '/visitors/' . $visitorId, null, [
-            'expand[]' => ['pin_code', 'resource', 'schedule'],
+            'expand[]' => self::VISITOR_LIST_EXPAND,
         ]);
 
         return $response['data'] ?? [];
+    }
+
+    /**
+     * List responses often omit remarks; detail GET includes it (plain PIN is only stored there).
+     *
+     * @param array<string, mixed> $visitor
+     * @return array<string, mixed>
+     */
+    private function ensureVisitorRemarks(array $visitor): array
+    {
+        if (array_key_exists('remarks', $visitor)) {
+            return $visitor;
+        }
+
+        $visitorId = $visitor['id'] ?? null;
+
+        if ($visitorId === null || $visitorId === '') {
+            return $visitor;
+        }
+
+        $detail = $this->getVisitor((string) $visitorId);
+
+        if (array_key_exists('remarks', $detail)) {
+            $visitor['remarks'] = $detail['remarks'];
+        }
+
+        return $visitor;
     }
 
     /**
@@ -359,7 +395,7 @@ class UnifiAccessClient
             $resources[] = $entry;
         }
 
-        $remarks = isset($visitor['remarks']) ? (string) $visitor['remarks'] : null;
+        $remarks = array_key_exists('remarks', $visitor) ? (string) $visitor['remarks'] : null;
 
         return [
             'id' => (string) ($visitor['id'] ?? ''),
