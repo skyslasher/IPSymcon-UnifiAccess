@@ -41,7 +41,17 @@ class UniFiAccessIO extends IPSModule
     }
 
     /**
-     * Zugangsprofile (Access Policies) mit ID und Name.
+     * Türgruppen (Gebäude „All Doors“ und benutzerdefinierte Gruppen) für Ressourcenauswahl.
+     *
+     * @return array<int, array{id: string, name: string, type: string}>
+     */
+    public function GetDoorGroups(): array
+    {
+        return $this->getClient()->getDoorGroups();
+    }
+
+    /**
+     * Zugangsprofile (Access Policies) mit ID und Name – für Policy-basiertes Anlegen (CreateVisitor).
      *
      * @return array<int, array{id: string, name: string}>
      */

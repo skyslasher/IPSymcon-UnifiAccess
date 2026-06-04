@@ -2,20 +2,38 @@
 
 IP-Symcon-Bibliothek zur Anbindung von **UniFi Access** über die Developer API. Verwaltet ausschließlich **Besucher** (Visitor API), nicht reguläre Access-Benutzer.
 
-Die **Booking-ID** dient als eindeutige Kennung (UID) und wird beim Anlegen im Feld `remarks` als `BOOKING:{bookingId}` gespeichert. Die **PIN** wird ausschließlich über die Credential-Ressource `PUT /visitors/:id/pin_codes` zugewiesen – nicht in `remarks`.
+Die **Booking-ID** dient als eindeutige Kennung (UID) und wird beim Anlegen im Feld `remarks` als `BOOKING:{bookingId}` gespeichert. Die **PIN** wird ausschließlich über die Credential-Ressource `PUT /visitors/:id/pin_codes` zugewiesen – nicht in `remarks` und nicht in der öffentlichen Besucherliste.
 
-Die UniFi-API liefert die Klartext-PIN **nicht** zuverlässig über `expand[]=pin_code` (meist nur `pin_code.token`, ein Hash). `GET /visitors` (Liste) enthält `remarks` oft leer oder gar nicht.
+Die UniFi-API liefert die Klartext-PIN **nicht** zuverlässig über `expand[]=pin_code`. `GET /visitors` (Liste) enthält `remarks` oft leer oder gar nicht.
 
-`UAF_GetAllVisitors` und die Booking-Suche reichern Besucher deshalb bei leeren `remarks` per `GET /visitors/:id` an. Ist nur ein Hash verfügbar, enthält der normalisierte Eintrag optional `pin_code_token`. Das Feld `pin` erscheint nur, wenn die API Klartext zurückgibt (undokumentierter `GET /visitors/:id/pin_codes`).
+`UAF_GetAllVisitors` und die Booking-Suche reichern Besucher deshalb bei leeren `remarks` per `GET /visitors/:id` an. Die normalisierte Liste enthält **keine** PIN-Felder (`pin`, `pin_code_token`) – nur `booking_id` als UID.
 
 ### PIN ändern (`UpdateVisitor`)
 
-Wird `$pin` übergeben (nicht `null` und nicht leer), vergleicht das Modul die neue PIN mit der aktuellen Klartext-PIN (falls lesbar). Ist kein Klartext verfügbar, wird die PIN-Ressource immer neu gesetzt:
+Wird `$pin` übergeben (nicht `null` und nicht leer), vergleicht das Modul die neue PIN intern mit der aktuellen Klartext-PIN (falls lesbar). Ist kein Klartext verfügbar, wird die PIN-Ressource neu gesetzt:
 
 1. optional `DELETE /visitors/:id/pin_codes`
 2. `PUT /visitors/:id/pin_codes` mit `{"pin_code":"..."}`
 
 Stammdaten (Name, Zeiten, Policy) werden weiterhin über `PUT /visitors/:id` aktualisiert; `remarks` bleibt `BOOKING:{bookingId}`.
+
+## Türgruppen (`UAF_GetDoorGroups`)
+
+Für die Auswahl von Zugangsressourcen beim Anlegen von Besuchern ist die **Türgruppen-Liste** die primäre Funktion (Berechtigung `view:space`).
+
+Quelle: `GET /api/v1/developer/door_groups/topology` (Gebäudegruppe „All Doors“ + benutzerdefinierte Gruppen), ergänzt um `GET /door_groups` falls einzelne `access`-Gruppen in der Topology fehlen.
+
+Jeder Eintrag:
+
+| Feld | Beschreibung |
+|------|----------------|
+| `id` | UUID der Türgruppe (für `resources` bei Besuchern) |
+| `name` | Anzeigename (z. B. „All Doors“, „Eingang Nord“) |
+| `type` | `building` = alle Türen des Standorts; `door_group` = benutzerdefinierte Gruppe (API-Typ `access`) |
+| `resource_topologies` | optional: Etagen und Türen (nur aus Topology, bei `building` und oft bei Gruppen) |
+| `resources` | optional: flache Tür-IDs (aus `GET /door_groups`, wenn vorhanden) |
+
+`UAF_GetAccessProfiles` bleibt für **Policy-basiertes** Anlegen über `UAF_CreateVisitor` (Parameter `$policyId` → Ressourcen aus der Access Policy). Für direkte Türgruppen-Zuweisung an Besucher ist die Visitor-API künftig erweiterbar – aktuell nur Listing.
 
 ## Voraussetzungen
 
@@ -33,8 +51,8 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 
 | Berechtigung | Zweck in diesem Modul |
 |--------------|------------------------|
-| `view:space` | Verbindungstest, Türen/Türgruppen |
-| `view:policy` | Zugangsprofile lesen (`GetAccessProfiles`) |
+| `view:space` | Verbindungstest, Türgruppen (`GetDoorGroups`) |
+| `view:policy` | Zugangsprofile lesen (`GetAccessProfiles`, nur für Policy-basiertes CreateVisitor) |
 | `view:visitor` | Besucher suchen und auslesen |
 | `edit:visitor` | Besucher anlegen, ändern, löschen |
 | `edit:credential` | PIN und QR-Code zuweisen |
@@ -45,7 +63,7 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 
 - Falscher Token-Typ (Network/Protect-Key statt Access-API-Token) – siehe Pfad oben
 - Token abgelaufen oder gelöscht – neuen Token anlegen
-- Fehlende Berechtigungen – mindestens `view:space` für den Test, alle fünf Keys für volle Funktion
+- Fehlende Berechtigungen – mindestens `view:space` für den Test und Türgruppen, alle fünf Keys für volle Funktion inkl. Policy-Anlegen
 - Falscher Host/Port oder Firewall blockiert Port 12445
 
 ## Installation in IP-Symcon
@@ -74,10 +92,11 @@ Die veraltete Funktion `UAF_FindVisitorByPin` findet weiterhin Besucher mit Lega
 | Funktion | Beschreibung |
 |----------|--------------|
 | `UAF_TestConnection($InstanceID)` | API-Verbindung prüfen (auch über Button in der Instanzkonfiguration nach „Übernehmen“) |
-| `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) als Liste mit `id` und `name` |
+| `UAF_GetDoorGroups($InstanceID)` | Türgruppen: `id`, `name`, `type` (`building` / `door_group`), optional `resource_topologies` / `resources` |
+| `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) – für `CreateVisitor` mit `$policyId` |
 | `UAF_CreateVisitor($InstanceID, $bookingId, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen: Booking-ID in remarks, PIN über Credential-Ressource |
 | `UAF_FindVisitorByBookingId($InstanceID, $bookingId)` | Besucher anhand Booking-ID finden |
-| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, `booking_id`, optional `pin`/`pin_code_token`, Zeiten, Status, Ressourcen) |
+| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, `booking_id`, Zeiten, Status, Ressourcen – ohne PIN-Felder) |
 | `UAF_UpdateVisitor($InstanceID, $bookingId, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon, $pin)` | Besucher ändern; `$pin` optional – bei Angabe PIN über Credential-Ressource neu setzen |
 | `UAF_DeleteVisitor($InstanceID, $bookingId)` | Besucher löschen |
 | `UAF_CreateQrCode($InstanceID, $bookingId)` | QR-Code für Besucher erzeugen |
@@ -94,6 +113,12 @@ $io = 12345; // Instanz-ID
 $bookingId = 'RES-2026-0042';
 $pin = '47110815';
 
+$groups = UAF_GetDoorGroups($io);
+foreach ($groups as $group) {
+    echo $group['name'] . ' [' . $group['type'] . '] → ' . $group['id'] . "\n";
+}
+
+// Policy-basiertes Anlegen (weiterhin über Access Profile):
 $profile = UAF_GetAccessProfiles($io);
 $policyId = $profile[0]['id'];
 

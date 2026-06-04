@@ -75,7 +75,8 @@ class UnifiAccessClient
 
         if (!$policies['ok']) {
             if ($this->isAuthOrPermissionError($policies['httpCode'])) {
-                return 'Verbindung OK. Berechtigung view:policy fehlt – Zugangsprofile (GetAccessProfiles) sind nicht verfügbar. '
+                return 'Verbindung OK. Berechtigung view:policy fehlt – Zugangsprofile (GetAccessProfiles) für Policy-basiertes Anlegen nicht verfügbar. '
+                    . 'Türgruppen (GetDoorGroups) sind über view:space verfügbar. '
                     . self::TOKEN_HELP;
             }
 
@@ -83,6 +84,69 @@ class UnifiAccessClient
         }
 
         return 'Verbindung erfolgreich.';
+    }
+
+    /**
+     * Flache Liste aller Türgruppen inkl. Gebäudegruppe „All Doors“ (topology) und angepasster Gruppen.
+     *
+     * API-Typen: topology liefert `building` (alle Türen) und `access` (benutzerdefinierte Gruppen);
+     * `GET /door_groups` ergänzt ggf. fehlende `access`-Gruppen (ohne `building`).
+     *
+     * @return array<int, array{
+     *     id: string,
+     *     name: string,
+     *     type: 'building'|'door_group',
+     *     resource_topologies?: array<int, mixed>,
+     *     resources?: array<int, array{id: string, type: string, name?: string}>
+     * }>
+     */
+    public function getDoorGroups(): array
+    {
+        $response = $this->request('GET', '/door_groups/topology');
+        $groups = [];
+        $seenIds = [];
+
+        foreach ($response['data'] ?? [] as $group) {
+            if (!is_array($group) || !isset($group['id'])) {
+                continue;
+            }
+
+            $entry = $this->normalizeDoorGroupEntry($group);
+            $groups[] = $entry;
+            $seenIds[$entry['id']] = true;
+        }
+
+        try {
+            $flatResponse = $this->request('GET', '/door_groups');
+            $flatData = $flatResponse['data'] ?? [];
+
+            if (!is_array($flatData)) {
+                $flatData = [];
+            }
+
+            if (isset($flatData['id'])) {
+                $flatData = [$flatData];
+            }
+
+            foreach ($flatData as $group) {
+                if (!is_array($group) || !isset($group['id'])) {
+                    continue;
+                }
+
+                $id = (string) $group['id'];
+
+                if (isset($seenIds[$id])) {
+                    continue;
+                }
+
+                $groups[] = $this->normalizeDoorGroupEntry($group);
+                $seenIds[$id] = true;
+            }
+        } catch (RuntimeException) {
+            // Flache Liste ist optional; Topology reicht für die meisten Controller.
+        }
+
+        return $groups;
     }
 
     /**
@@ -229,8 +293,6 @@ class UnifiAccessClient
      *     first_name: string,
      *     last_name: string,
      *     booking_id: string|null,
-     *     pin: string|null,
-     *     pin_code_token?: string,
      *     start_time: int,
      *     end_time: int,
      *     status: string,
@@ -488,28 +550,12 @@ class UnifiAccessClient
     }
 
     /**
-     * @param mixed $pinCode
-     */
-    private function pinCodeTokenFromObject($pinCode): ?string
-    {
-        if (!is_array($pinCode) || !isset($pinCode['token'])) {
-            return null;
-        }
-
-        $token = (string) $pinCode['token'];
-
-        return $token !== '' ? $token : null;
-    }
-
-    /**
      * @param array<string, mixed> $visitor
      * @return array{
      *     id: string,
      *     first_name: string,
      *     last_name: string,
      *     booking_id: string|null,
-     *     pin: string|null,
-     *     pin_code_token?: string,
      *     start_time: int,
      *     end_time: int,
      *     status: string,
@@ -555,25 +601,71 @@ class UnifiAccessClient
         }
 
         $bookingId = self::bookingIdFromRemark($this->visitorRemarks($visitor));
-        $pin = $this->resolvePlainPin($visitor);
 
-        $entry = [
+        return [
             'id' => (string) ($visitor['id'] ?? ''),
             'first_name' => (string) ($visitor['first_name'] ?? ''),
             'last_name' => (string) ($visitor['last_name'] ?? ''),
             'booking_id' => $bookingId,
-            'pin' => $pin,
             'start_time' => (int) ($visitor['start_time'] ?? 0),
             'end_time' => (int) ($visitor['end_time'] ?? 0),
             'status' => (string) ($visitor['status'] ?? ''),
             'access_policy_ids' => $accessPolicyIds,
             'resources' => $resources,
         ];
+    }
 
-        $pinCodeToken = $this->pinCodeTokenFromObject($visitor['pin_code'] ?? null);
+    /**
+     * @param array<string, mixed> $group
+     * @return array{
+     *     id: string,
+     *     name: string,
+     *     type: 'building'|'door_group',
+     *     resource_topologies?: array<int, mixed>,
+     *     resources?: array<int, array{id: string, type: string, name?: string}>
+     * }
+     */
+    private function normalizeDoorGroupEntry(array $group): array
+    {
+        $apiType = (string) ($group['type'] ?? '');
+        $type = match ($apiType) {
+            'building' => 'building',
+            default => 'door_group',
+        };
 
-        if ($pinCodeToken !== null && $pin === null) {
-            $entry['pin_code_token'] = $pinCodeToken;
+        $entry = [
+            'id' => (string) $group['id'],
+            'name' => (string) ($group['name'] ?? ''),
+            'type' => $type,
+        ];
+
+        if (isset($group['resource_topologies']) && is_array($group['resource_topologies'])) {
+            $entry['resource_topologies'] = $group['resource_topologies'];
+        }
+
+        if (isset($group['resources']) && is_array($group['resources'])) {
+            $resources = [];
+
+            foreach ($group['resources'] as $resource) {
+                if (!is_array($resource) || !isset($resource['id'])) {
+                    continue;
+                }
+
+                $resourceEntry = [
+                    'id' => (string) $resource['id'],
+                    'type' => (string) ($resource['type'] ?? 'door'),
+                ];
+
+                if (isset($resource['name'])) {
+                    $resourceEntry['name'] = (string) $resource['name'];
+                }
+
+                $resources[] = $resourceEntry;
+            }
+
+            if ($resources !== []) {
+                $entry['resources'] = $resources;
+            }
         }
 
         return $entry;
