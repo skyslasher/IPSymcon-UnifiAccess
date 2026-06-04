@@ -24,6 +24,7 @@ Die **PIN** dient als eindeutige Kennung (UID) und wird im Feld `remarks` als `P
 
 | Funktion | Beschreibung |
 |----------|--------------|
+| `UAF_TestConnection($InstanceID)` | API-Verbindung prüfen (auch über Button in der Instanzkonfiguration nach „Übernehmen“) |
 | `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) als Liste mit `id` und `name` |
 | `UAF_CreateVisitor($InstanceID, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen, Ressourcen aus Policy, PIN zuweisen |
 | `UAF_FindVisitorByPin($InstanceID, $pin)` | Besucher anhand PIN finden |

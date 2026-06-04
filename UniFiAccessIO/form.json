@@ -31,9 +31,9 @@
     ],
     "actions": [
         {
-            "type": "Test",
-            "label": "Verbindung testen",
-            "onClick": "UAF_TestConnection();"
+            "type": "Button",
+            "caption": "Verbindung testen",
+            "onClick": "if (UAF_TestConnection($id)) { echo 'Verbindung zur UniFi Access API erfolgreich.'; } else { echo 'Verbindung fehlgeschlagen. Details in der Meldungskonsole (Debug).'; }"
         }
     ]
 }
