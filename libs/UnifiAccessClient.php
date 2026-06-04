@@ -7,7 +7,10 @@ declare(strict_types=1);
  */
 class UnifiAccessClient
 {
-    public const PIN_REMARK_PREFIX = 'PIN:';
+    public const BOOKING_REMARK_PREFIX = 'BOOKING:';
+
+    /** @deprecated Legacy remarks format; only used by findVisitorByPin() */
+    private const LEGACY_PIN_REMARK_PREFIX = 'PIN:';
 
     /** @var array<int, string> */
     private const VISITOR_LIST_EXPAND = ['pin_code', 'resource', 'schedule'];
@@ -32,19 +35,21 @@ class UnifiAccessClient
         $this->verifySsl = $verifySsl;
     }
 
-    public static function pinRemark(string $pin): string
+    public static function bookingRemark(string $bookingId): string
     {
-        return self::PIN_REMARK_PREFIX . $pin;
+        return self::BOOKING_REMARK_PREFIX . $bookingId;
     }
 
-    public static function pinFromRemark(?string $remarks): ?string
+    public static function bookingIdFromRemark(?string $remarks): ?string
     {
         if ($remarks === null || $remarks === '') {
             return null;
         }
 
-        if (str_starts_with($remarks, self::PIN_REMARK_PREFIX)) {
-            return substr($remarks, strlen(self::PIN_REMARK_PREFIX));
+        if (str_starts_with($remarks, self::BOOKING_REMARK_PREFIX)) {
+            $bookingId = substr($remarks, strlen(self::BOOKING_REMARK_PREFIX));
+
+            return $bookingId !== '' ? $bookingId : null;
         }
 
         return null;
@@ -107,6 +112,7 @@ class UnifiAccessClient
      * @return array<string, mixed>
      */
     public function createVisitor(
+        string $bookingId,
         string $pin,
         string $firstName,
         string $lastName,
@@ -120,7 +126,7 @@ class UnifiAccessClient
         $body = array_merge([
             'first_name' => $firstName,
             'last_name' => $lastName,
-            'remarks' => self::pinRemark($pin),
+            'remarks' => self::bookingRemark($bookingId),
             'start_time' => $startTime > 0 ? $startTime : time(),
             'end_time' => $endTime > 0 ? $endTime : (time() + 86400 * 365),
             'visit_reason' => 'Others',
@@ -143,9 +149,8 @@ class UnifiAccessClient
     /**
      * @return array<string, mixed>|null
      */
-    public function findVisitorByPin(string $pin): ?array
+    public function findVisitorByBookingId(string $bookingId): ?array
     {
-        $needle = self::pinRemark($pin);
         $page = 1;
         $pageSize = 100;
 
@@ -161,9 +166,52 @@ class UnifiAccessClient
                     continue;
                 }
 
-                $visitor = $this->enrichVisitorWithPin($visitor);
+                $visitor = $this->enrichVisitor($visitor);
 
-                if (self::pinFromRemark($this->visitorRemarks($visitor)) === $pin) {
+                if (self::bookingIdFromRemark($this->visitorRemarks($visitor)) === $bookingId) {
+                    return $visitor;
+                }
+            }
+
+            $total = (int) ($response['pagination']['total'] ?? 0);
+            $page++;
+        } while (($page - 1) * $pageSize < $total);
+
+        return null;
+    }
+
+    /**
+     * @deprecated Suche nach Klartext-PIN (Legacy: PIN: in remarks oder PIN-Ressource)
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findVisitorByPin(string $pin): ?array
+    {
+        $page = 1;
+        $pageSize = 100;
+
+        do {
+            $response = $this->request('GET', '/visitors', null, [
+                'page_num' => (string) $page,
+                'page_size' => (string) $pageSize,
+                'expand[]' => self::VISITOR_LIST_EXPAND,
+            ]);
+
+            foreach ($response['data'] ?? [] as $visitor) {
+                if (!is_array($visitor)) {
+                    continue;
+                }
+
+                $visitor = $this->enrichVisitor($visitor);
+                $remarks = $this->visitorRemarks($visitor);
+
+                if ($remarks !== null
+                    && str_starts_with($remarks, self::LEGACY_PIN_REMARK_PREFIX)
+                    && substr($remarks, strlen(self::LEGACY_PIN_REMARK_PREFIX)) === $pin) {
+                    return $visitor;
+                }
+
+                if ($this->resolvePlainPin($visitor) === $pin) {
                     return $visitor;
                 }
             }
@@ -180,6 +228,7 @@ class UnifiAccessClient
      *     id: string,
      *     first_name: string,
      *     last_name: string,
+     *     booking_id: string|null,
      *     pin: string|null,
      *     pin_code_token?: string,
      *     start_time: int,
@@ -207,7 +256,7 @@ class UnifiAccessClient
                     continue;
                 }
 
-                $visitors[] = $this->normalizeVisitorEntry($this->enrichVisitorWithPin($visitor));
+                $visitors[] = $this->normalizeVisitorEntry($this->enrichVisitor($visitor));
             }
 
             $total = (int) ($response['pagination']['total'] ?? 0);
@@ -222,25 +271,26 @@ class UnifiAccessClient
      * @return array<string, mixed>
      */
     public function updateVisitor(
-        string $pin,
+        string $bookingId,
         string $firstName,
         string $lastName,
         string $accessPolicyId,
         int $startTime,
         int $endTime,
-        array $extra = []
+        array $extra = [],
+        ?string $pin = null
     ): array {
-        $visitor = $this->findVisitorByPin($pin);
+        $visitor = $this->findVisitorByBookingId($bookingId);
 
         if ($visitor === null) {
-            throw new RuntimeException('Kein Besucher mit PIN ' . $pin . ' gefunden.');
+            throw new RuntimeException('Kein Besucher mit Booking-ID ' . $bookingId . ' gefunden.');
         }
 
         $visitorId = (string) $visitor['id'];
         $body = array_merge([
             'first_name' => $firstName,
             'last_name' => $lastName,
-            'remarks' => self::pinRemark($pin),
+            'remarks' => self::bookingRemark($bookingId),
             'resources' => $this->resourcesFromAccessPolicy($accessPolicyId),
         ], $extra);
 
@@ -254,12 +304,20 @@ class UnifiAccessClient
 
         $this->request('PUT', '/visitors/' . $visitorId, $body);
 
+        if ($pin !== null && $pin !== '') {
+            $currentPin = $this->resolvePlainPin($visitor);
+
+            if ($currentPin === null || $currentPin !== $pin) {
+                $this->reassignPinCode($visitorId, $pin);
+            }
+        }
+
         return $this->getVisitor($visitorId);
     }
 
-    public function deleteVisitor(string $pin): bool
+    public function deleteVisitor(string $bookingId): bool
     {
-        $visitor = $this->findVisitorByPin($pin);
+        $visitor = $this->findVisitorByBookingId($bookingId);
 
         if ($visitor === null) {
             return false;
@@ -269,7 +327,7 @@ class UnifiAccessClient
 
         try {
             $this->request('DELETE', '/visitors/' . $visitorId . '/pin_codes');
-        } catch (RuntimeException $e) {
+        } catch (RuntimeException) {
             // PIN war evtl. nicht gesetzt
         }
 
@@ -281,17 +339,17 @@ class UnifiAccessClient
     /**
      * @return array<string, mixed>
      */
-    public function createQrCode(string $pin): array
+    public function createQrCode(string $bookingId): array
     {
-        $visitorId = $this->visitorIdFromPin($pin);
+        $visitorId = $this->visitorIdFromBookingId($bookingId);
         $this->request('PUT', '/visitors/' . $visitorId . '/qr_codes');
 
         return $this->getVisitor($visitorId);
     }
 
-    public function downloadQrCode(string $pin, string $targetPath): string
+    public function downloadQrCode(string $bookingId, string $targetPath): string
     {
-        $visitorId = $this->visitorIdFromPin($pin);
+        $visitorId = $this->visitorIdFromBookingId($bookingId);
         $binary = $this->request('GET', '/credentials/qr_codes/download/' . $visitorId, null, [], true);
 
         $directory = dirname($targetPath);
@@ -319,13 +377,12 @@ class UnifiAccessClient
     }
 
     /**
-     * Resolves plaintext PIN: remarks (PIN:xxx), then GET /visitors/:id, then GET /visitors/:id/pin_codes.
-     * List entries often have empty remarks; pin_code expand only exposes token (hash).
+     * List entries often have empty remarks; fetch detail when booking id is missing.
      *
      * @param array<string, mixed> $visitor
      * @return array<string, mixed>
      */
-    private function enrichVisitorWithPin(array $visitor): array
+    private function enrichVisitor(array $visitor): array
     {
         $visitorId = $visitor['id'] ?? null;
 
@@ -334,27 +391,10 @@ class UnifiAccessClient
         }
 
         $visitorId = (string) $visitorId;
-        $pin = self::pinFromRemark($this->visitorRemarks($visitor));
+        $remarks = $this->visitorRemarks($visitor);
 
-        if ($pin === null || !$this->hasPinCodeObject($visitor)) {
+        if ($remarks === null || self::bookingIdFromRemark($remarks) === null) {
             $visitor = array_merge($visitor, $this->getVisitor($visitorId));
-            $pin = self::pinFromRemark($this->visitorRemarks($visitor));
-        }
-
-        if ($pin === null) {
-            $pin = $this->plainPinFromPinCodeObject($visitor['pin_code'] ?? null);
-        }
-
-        if ($pin === null) {
-            $pinResource = $this->fetchVisitorPinCodeResource($visitorId);
-
-            if ($pinResource !== null) {
-                $visitor['pin_code'] = array_merge(
-                    is_array($visitor['pin_code'] ?? null) ? $visitor['pin_code'] : [],
-                    $pinResource
-                );
-                $pin = $this->plainPinFromPinCodeObject($pinResource);
-            }
         }
 
         return $visitor;
@@ -377,9 +417,23 @@ class UnifiAccessClient
     /**
      * @param array<string, mixed> $visitor
      */
-    private function hasPinCodeObject(array $visitor): bool
+    private function resolvePlainPin(array $visitor): ?string
     {
-        return isset($visitor['pin_code']) && is_array($visitor['pin_code']) && $visitor['pin_code'] !== [];
+        $pin = $this->plainPinFromPinCodeObject($visitor['pin_code'] ?? null);
+
+        if ($pin !== null) {
+            return $pin;
+        }
+
+        $visitorId = $visitor['id'] ?? null;
+
+        if ($visitorId === null || $visitorId === '') {
+            return null;
+        }
+
+        $pinResource = $this->fetchVisitorPinCodeResource((string) $visitorId);
+
+        return $this->plainPinFromPinCodeObject($pinResource);
     }
 
     /**
@@ -453,6 +507,7 @@ class UnifiAccessClient
      *     id: string,
      *     first_name: string,
      *     last_name: string,
+     *     booking_id: string|null,
      *     pin: string|null,
      *     pin_code_token?: string,
      *     start_time: int,
@@ -499,17 +554,14 @@ class UnifiAccessClient
             $resources[] = $entry;
         }
 
-        $remarks = $this->visitorRemarks($visitor);
-        $pin = self::pinFromRemark($remarks);
-
-        if ($pin === null) {
-            $pin = $this->plainPinFromPinCodeObject($visitor['pin_code'] ?? null);
-        }
+        $bookingId = self::bookingIdFromRemark($this->visitorRemarks($visitor));
+        $pin = $this->resolvePlainPin($visitor);
 
         $entry = [
             'id' => (string) ($visitor['id'] ?? ''),
             'first_name' => (string) ($visitor['first_name'] ?? ''),
             'last_name' => (string) ($visitor['last_name'] ?? ''),
+            'booking_id' => $bookingId,
             'pin' => $pin,
             'start_time' => (int) ($visitor['start_time'] ?? 0),
             'end_time' => (int) ($visitor['end_time'] ?? 0),
@@ -527,12 +579,12 @@ class UnifiAccessClient
         return $entry;
     }
 
-    private function visitorIdFromPin(string $pin): string
+    private function visitorIdFromBookingId(string $bookingId): string
     {
-        $visitor = $this->findVisitorByPin($pin);
+        $visitor = $this->findVisitorByBookingId($bookingId);
 
         if ($visitor === null || !isset($visitor['id'])) {
-            throw new RuntimeException('Kein Besucher mit PIN ' . $pin . ' gefunden.');
+            throw new RuntimeException('Kein Besucher mit Booking-ID ' . $bookingId . ' gefunden.');
         }
 
         return (string) $visitor['id'];
@@ -543,6 +595,17 @@ class UnifiAccessClient
         $this->request('PUT', '/visitors/' . $visitorId . '/pin_codes', [
             'pin_code' => $pin,
         ]);
+    }
+
+    private function reassignPinCode(string $visitorId, string $pin): void
+    {
+        try {
+            $this->request('DELETE', '/visitors/' . $visitorId . '/pin_codes');
+        } catch (RuntimeException) {
+            // PIN war evtl. nicht gesetzt
+        }
+
+        $this->assignPinCode($visitorId, $pin);
     }
 
     /**

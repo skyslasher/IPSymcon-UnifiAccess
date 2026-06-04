@@ -51,11 +51,12 @@ class UniFiAccessIO extends IPSModule
     }
 
     /**
-     * Besucher anlegen inkl. PIN und Zugangsprofil (Ressourcen aus Policy).
+     * Besucher anlegen: Booking-ID in remarks, PIN über Credential-Ressource.
      *
      * @return array<string, mixed>
      */
     public function CreateVisitor(
+        string $bookingId,
         string $pin,
         string $firstName,
         string $lastName,
@@ -76,6 +77,7 @@ class UniFiAccessIO extends IPSModule
         }
 
         return $this->getClient()->createVisitor(
+            $bookingId,
             $pin,
             $firstName,
             $lastName,
@@ -87,6 +89,16 @@ class UniFiAccessIO extends IPSModule
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function FindVisitorByBookingId(string $bookingId): ?array
+    {
+        return $this->getClient()->findVisitorByBookingId($bookingId);
+    }
+
+    /**
+     * @deprecated Nutze FindVisitorByBookingId; sucht nach Klartext-PIN (Legacy remarks PIN:)
+     *
      * @return array<string, mixed>|null
      */
     public function FindVisitorByPin(string $pin): ?array
@@ -105,17 +117,20 @@ class UniFiAccessIO extends IPSModule
     }
 
     /**
+     * Besucher ändern. Optional neue PIN ($pin): wird über DELETE+PUT pin_codes gesetzt.
+     *
      * @return array<string, mixed>
      */
     public function UpdateVisitor(
-        string $pin,
+        string $bookingId,
         string $firstName,
         string $lastName,
         string $accessPolicyId,
         int $startTime = 0,
         int $endTime = 0,
         string $email = '',
-        string $mobilePhone = ''
+        string $mobilePhone = '',
+        ?string $pin = null
     ): array {
         $extra = [];
 
@@ -128,35 +143,36 @@ class UniFiAccessIO extends IPSModule
         }
 
         return $this->getClient()->updateVisitor(
-            $pin,
+            $bookingId,
             $firstName,
             $lastName,
             $accessPolicyId,
             $startTime,
             $endTime,
-            $extra
+            $extra,
+            $pin
         );
     }
 
-    public function DeleteVisitor(string $pin): bool
+    public function DeleteVisitor(string $bookingId): bool
     {
-        return $this->getClient()->deleteVisitor($pin);
+        return $this->getClient()->deleteVisitor($bookingId);
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function CreateQrCode(string $pin): array
+    public function CreateQrCode(string $bookingId): array
     {
-        return $this->getClient()->createQrCode($pin);
+        return $this->getClient()->createQrCode($bookingId);
     }
 
-    public function DownloadQrCode(string $pin, string $targetPath): string
+    public function DownloadQrCode(string $bookingId, string $targetPath): string
     {
-        return $this->getClient()->downloadQrCode($pin, $targetPath);
+        return $this->getClient()->downloadQrCode($bookingId, $targetPath);
     }
 
-    /** @deprecated Alias für CreateVisitor */
+    /** @deprecated Alias für CreateVisitor (PIN dient als Booking-ID) */
     public function CreateUser(
         string $pin,
         string $firstName,
@@ -166,7 +182,7 @@ class UniFiAccessIO extends IPSModule
         int $endTime = 0,
         string $email = ''
     ): array {
-        return $this->CreateVisitor($pin, $firstName, $lastName, $accessPolicyId, $startTime, $endTime, $email);
+        return $this->CreateVisitor($pin, $pin, $firstName, $lastName, $accessPolicyId, $startTime, $endTime, $email);
     }
 
     /** @deprecated Alias für FindVisitorByPin */
@@ -175,7 +191,7 @@ class UniFiAccessIO extends IPSModule
         return $this->FindVisitorByPin($pin);
     }
 
-    /** @deprecated Alias für UpdateVisitor */
+    /** @deprecated Alias für UpdateVisitor (erster Parameter = frühere PIN-UID als Booking-ID) */
     public function UpdateUser(
         string $pin,
         string $firstName,

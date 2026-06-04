@@ -2,14 +2,20 @@
 
 IP-Symcon-Bibliothek zur Anbindung von **UniFi Access** über die Developer API. Verwaltet ausschließlich **Besucher** (Visitor API), nicht reguläre Access-Benutzer.
 
-Die **PIN** dient als eindeutige Kennung (UID) und wird beim Anlegen im Feld `remarks` als `PIN:123456` gespeichert sowie über `PUT /visitors/:id/pin_codes` zugewiesen. Die UniFi-API liefert die Klartext-PIN **nicht** über `expand[]=pin_code` (nur `pin_code.token`, ein Hash). `GET /visitors` (Liste) enthält `remarks` oft leer oder gar nicht.
+Die **Booking-ID** dient als eindeutige Kennung (UID) und wird beim Anlegen im Feld `remarks` als `BOOKING:{bookingId}` gespeichert. Die **PIN** wird ausschließlich über die Credential-Ressource `PUT /visitors/:id/pin_codes` zugewiesen – nicht in `remarks`.
 
-`UAF_GetAllVisitors` und die PIN-Suche reichern jeden Besucher deshalb explizit an:
+Die UniFi-API liefert die Klartext-PIN **nicht** zuverlässig über `expand[]=pin_code` (meist nur `pin_code.token`, ein Hash). `GET /visitors` (Liste) enthält `remarks` oft leer oder gar nicht.
 
-1. `GET /visitors/:id?expand[]=pin_code` – Detail inkl. `remarks` und PIN-Hash
-2. `GET /visitors/:id/pin_codes` – optional, falls die API Klartext zurückgibt (undokumentiert)
+`UAF_GetAllVisitors` und die Booking-Suche reichern Besucher deshalb bei leeren `remarks` per `GET /visitors/:id` an. Ist nur ein Hash verfügbar, enthält der normalisierte Eintrag optional `pin_code_token`. Das Feld `pin` erscheint nur, wenn die API Klartext zurückgibt (undokumentierter `GET /visitors/:id/pin_codes`).
 
-Ist nur ein Hash verfügbar, enthält der normalisierte Eintrag optional `pin_code_token`. Besucher ohne `PIN:` in `remarks` (z. B. manuell in UniFi angelegt) haben `pin: null` – erwartetes Verhalten.
+### PIN ändern (`UpdateVisitor`)
+
+Wird `$pin` übergeben (nicht `null` und nicht leer), vergleicht das Modul die neue PIN mit der aktuellen Klartext-PIN (falls lesbar). Ist kein Klartext verfügbar, wird die PIN-Ressource immer neu gesetzt:
+
+1. optional `DELETE /visitors/:id/pin_codes`
+2. `PUT /visitors/:id/pin_codes` mit `{"pin_code":"..."}`
+
+Stammdaten (Name, Zeiten, Policy) werden weiterhin über `PUT /visitors/:id` aktualisiert; `remarks` bleibt `BOOKING:{bookingId}`.
 
 ## Voraussetzungen
 
@@ -52,41 +58,60 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 3. **Instanz hinzufügen** → **UniFi Access IO**
 4. Host (IP der UDM), Port `12445`, API-Token eintragen, SSL-Prüfung bei selbstsigniertem Zertifikat deaktivieren
 
+## Migration von Build 2 (PIN als UID)
+
+Besucher aus älteren Versionen haben `PIN:{pin}` in `remarks`. Ab Build 3 ist die UID `BOOKING:{bookingId}`.
+
+**Optionen:**
+
+- Besucher neu anlegen mit `UAF_CreateVisitor` und echter Booking-ID
+- Oder `remarks` in UniFi Access manuell auf `BOOKING:{deineBookingId}` setzen (PIN-Ressource bleibt unverändert)
+
+Die veraltete Funktion `UAF_FindVisitorByPin` findet weiterhin Besucher mit Legacy-`PIN:`-remarks oder per Klartext-PIN aus der API.
+
 ## Skript-Funktionen (Prefix `UAF_`)
 
 | Funktion | Beschreibung |
 |----------|--------------|
 | `UAF_TestConnection($InstanceID)` | API-Verbindung prüfen (auch über Button in der Instanzkonfiguration nach „Übernehmen“) |
 | `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) als Liste mit `id` und `name` |
-| `UAF_CreateVisitor($InstanceID, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen, Ressourcen aus Policy, PIN zuweisen |
-| `UAF_FindVisitorByPin($InstanceID, $pin)` | Besucher anhand PIN finden |
-| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, `pin` aus `remarks`/PIN-Ressource, optional `pin_code_token`, Zeiten, Status, Ressourcen) |
-| `UAF_UpdateVisitor(...)` | Besucher ändern |
-| `UAF_DeleteVisitor($InstanceID, $pin)` | Besucher löschen |
-| `UAF_CreateQrCode($InstanceID, $pin)` | QR-Code für Besucher erzeugen |
-| `UAF_DownloadQrCode($InstanceID, $pin, $zielPfad)` | QR-Code als Datei speichern |
+| `UAF_CreateVisitor($InstanceID, $bookingId, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen: Booking-ID in remarks, PIN über Credential-Ressource |
+| `UAF_FindVisitorByBookingId($InstanceID, $bookingId)` | Besucher anhand Booking-ID finden |
+| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, `booking_id`, optional `pin`/`pin_code_token`, Zeiten, Status, Ressourcen) |
+| `UAF_UpdateVisitor($InstanceID, $bookingId, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon, $pin)` | Besucher ändern; `$pin` optional – bei Angabe PIN über Credential-Ressource neu setzen |
+| `UAF_DeleteVisitor($InstanceID, $bookingId)` | Besucher löschen |
+| `UAF_CreateQrCode($InstanceID, $bookingId)` | QR-Code für Besucher erzeugen |
+| `UAF_DownloadQrCode($InstanceID, $bookingId, $zielPfad)` | QR-Code als Datei speichern |
 
-**Alias** (ältere Benennung): `UAF_CreateUser`, `UAF_FindUserByPin`, `UAF_UpdateUser`, `UAF_DeleteUser` – rufen dieselben Besucher-Funktionen auf.
+**Veraltet:** `UAF_FindVisitorByPin` – Suche nach Klartext-PIN (Legacy).
+
+**Alias** (ältere Benennung): `UAF_CreateUser`, `UAF_FindUserByPin`, `UAF_UpdateUser`, `UAF_DeleteUser` – rufen veraltete bzw. kompatible Besucher-Funktionen auf.
 
 ### Beispiel
 
 ```php
 $io = 12345; // Instanz-ID
+$bookingId = 'RES-2026-0042';
+$pin = '47110815';
 
 $profile = UAF_GetAccessProfiles($io);
 $policyId = $profile[0]['id'];
 
-UAF_CreateVisitor($io, '47110815', 'Max', 'Mustermann', $policyId, time(), time() + 86400 * 7);
+UAF_CreateVisitor($io, $bookingId, $pin, 'Max', 'Mustermann', $policyId, time(), time() + 86400 * 7);
 
-$visitor = UAF_FindVisitorByPin($io, '47110815');
+$visitor = UAF_FindVisitorByBookingId($io, $bookingId);
+
+// PIN ändern
+UAF_UpdateVisitor($io, $bookingId, 'Max', 'Mustermann', $policyId, 0, 0, '', '', '99887766');
 
 $alle = UAF_GetAllVisitors($io);
 foreach ($alle as $eintrag) {
-    echo $eintrag['first_name'] . ' ' . $eintrag['last_name'] . ' (PIN: ' . ($eintrag['pin'] ?? '–') . ")\n";
+    echo $eintrag['first_name'] . ' ' . $eintrag['last_name']
+        . ' (Booking: ' . ($eintrag['booking_id'] ?? '–') . ")\n";
 }
 
-UAF_CreateQrCode($io, '47110815');
-UAF_DownloadQrCode($io, '47110815', IPS_GetLogDir() . 'besucher-qr.png');
+UAF_CreateQrCode($io, $bookingId);
+UAF_DownloadQrCode($io, $bookingId, IPS_GetLogDir() . 'besucher-qr.png');
 ```
 
 ## Optionale Datei-Konfiguration
