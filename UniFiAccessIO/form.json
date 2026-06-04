@@ -1,0 +1,35 @@
+{
+    "elements": [
+        {
+            "type": "Label",
+            "label": "UniFi Access – ausschließlich Besucher (Visitor API). PIN wird in remarks als PIN:xxxx gespeichert."
+        },
+        {
+            "name": "Host",
+            "type": "ValidationTextBox",
+            "caption": "Host"
+        },
+        {
+            "name": "Port",
+            "type": "NumberSpinner",
+            "caption": "Port"
+        },
+        {
+            "name": "ApiToken",
+            "type": "PasswordTextBox",
+            "caption": "API-Token"
+        },
+        {
+            "name": "VerifySSL",
+            "type": "CheckBox",
+            "caption": "SSL prüfen"
+        }
+    ],
+    "actions": [
+        {
+            "type": "Test",
+            "label": "Verbindung testen",
+            "onClick": "UAF_TestConnection();"
+        }
+    ]
+}

@@ -1,0 +1,20 @@
+{
+    "translations": {
+        "de": {
+            "Verbindung zur UniFi Access API (nur Besucher). API-Token unter Access → Einstellungen → API.": "Verbindung zur UniFi Access API (nur Besucher). API-Token unter Access → Einstellungen → API.",
+            "Host (IP oder Hostname der UDM)": "Host (IP oder Hostname der UDM)",
+            "API-Port": "API-Port",
+            "API-Token": "API-Token",
+            "SSL-Zertifikat prüfen": "SSL-Zertifikat prüfen",
+            "Verbindung testen": "Verbindung testen"
+        },
+        "en": {
+            "Verbindung zur UniFi Access API (nur Besucher). API-Token unter Access → Einstellungen → API.": "Connection to UniFi Access API (visitors only). API token: Access → Settings → API.",
+            "Host (IP oder Hostname der UDM)": "Host (IP or hostname of UDM)",
+            "API-Port": "API port",
+            "API-Token": "API token",
+            "SSL-Zertifikat prüfen": "Verify SSL certificate",
+            "Verbindung testen": "Test connection"
+        }
+    }
+}

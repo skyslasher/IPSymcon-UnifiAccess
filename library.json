@@ -1,0 +1,11 @@
+{
+    "id": "{F8E2A1B0-3C4D-5E6F-7890-ABCDEF123456}",
+    "name": "UniFi Access",
+    "type": 0,
+    "vendor": "UniFi Access",
+    "aliases": [
+        "Unifi Access",
+        "UniFi Access Besucher"
+    ],
+    "url": "https://github.com/slash/IPSymcon-UnifiAccess"
+}
