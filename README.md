@@ -53,6 +53,7 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 | `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) als Liste mit `id` und `name` |
 | `UAF_CreateVisitor($InstanceID, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen, Ressourcen aus Policy, PIN zuweisen |
 | `UAF_FindVisitorByPin($InstanceID, $pin)` | Besucher anhand PIN finden |
+| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, PIN aus `remarks`, Zeiten, Status, Ressourcen) |
 | `UAF_UpdateVisitor(...)` | Besucher ändern |
 | `UAF_DeleteVisitor($InstanceID, $pin)` | Besucher löschen |
 | `UAF_CreateQrCode($InstanceID, $pin)` | QR-Code für Besucher erzeugen |
@@ -71,6 +72,11 @@ $policyId = $profile[0]['id'];
 UAF_CreateVisitor($io, '47110815', 'Max', 'Mustermann', $policyId, time(), time() + 86400 * 7);
 
 $visitor = UAF_FindVisitorByPin($io, '47110815');
+
+$alle = UAF_GetAllVisitors($io);
+foreach ($alle as $eintrag) {
+    echo $eintrag['first_name'] . ' ' . $eintrag['last_name'] . ' (PIN: ' . ($eintrag['pin'] ?? '–') . ")\n";
+}
 
 UAF_CreateQrCode($io, '47110815');
 UAF_DownloadQrCode($io, '47110815', IPS_GetLogDir() . 'besucher-qr.png');

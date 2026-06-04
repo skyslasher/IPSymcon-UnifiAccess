@@ -167,6 +167,47 @@ class UnifiAccessClient
     }
 
     /**
+     * @return array<int, array{
+     *     id: string,
+     *     first_name: string,
+     *     last_name: string,
+     *     pin: string|null,
+     *     start_time: int,
+     *     end_time: int,
+     *     status: string,
+     *     access_policy_ids: array<int, string>,
+     *     resources: array<int, array{id: string, type: string, name?: string}>
+     * }>
+     */
+    public function getAllVisitors(): array
+    {
+        $page = 1;
+        $pageSize = 100;
+        $visitors = [];
+
+        do {
+            $response = $this->request('GET', '/visitors', null, [
+                'page_num' => (string) $page,
+                'page_size' => (string) $pageSize,
+                'expand[]' => ['pin_code', 'resource', 'schedule'],
+            ]);
+
+            foreach ($response['data'] ?? [] as $visitor) {
+                if (!is_array($visitor)) {
+                    continue;
+                }
+
+                $visitors[] = $this->normalizeVisitorEntry($visitor);
+            }
+
+            $total = (int) ($response['pagination']['total'] ?? 0);
+            $page++;
+        } while (($page - 1) * $pageSize < $total);
+
+        return $visitors;
+    }
+
+    /**
      * @param array<string, mixed> $extra
      * @return array<string, mixed>
      */
@@ -265,6 +306,72 @@ class UnifiAccessClient
         ]);
 
         return $response['data'] ?? [];
+    }
+
+    /**
+     * @param array<string, mixed> $visitor
+     * @return array{
+     *     id: string,
+     *     first_name: string,
+     *     last_name: string,
+     *     pin: string|null,
+     *     start_time: int,
+     *     end_time: int,
+     *     status: string,
+     *     access_policy_ids: array<int, string>,
+     *     resources: array<int, array{id: string, type: string, name?: string}>
+     * }
+     */
+    private function normalizeVisitorEntry(array $visitor): array
+    {
+        $accessPolicyIds = [];
+
+        foreach ($visitor['access_policy_ids'] ?? [] as $policyId) {
+            if (is_string($policyId) || is_int($policyId)) {
+                $accessPolicyIds[] = (string) $policyId;
+            }
+        }
+
+        if ($accessPolicyIds === [] && isset($visitor['access_policies']) && is_array($visitor['access_policies'])) {
+            foreach ($visitor['access_policies'] as $policy) {
+                if (is_array($policy) && isset($policy['id'])) {
+                    $accessPolicyIds[] = (string) $policy['id'];
+                }
+            }
+        }
+
+        $resources = [];
+
+        foreach ($visitor['resources'] ?? [] as $resource) {
+            if (!is_array($resource) || !isset($resource['id'])) {
+                continue;
+            }
+
+            $entry = [
+                'id' => (string) $resource['id'],
+                'type' => (string) ($resource['type'] ?? ''),
+            ];
+
+            if (isset($resource['name'])) {
+                $entry['name'] = (string) $resource['name'];
+            }
+
+            $resources[] = $entry;
+        }
+
+        $remarks = isset($visitor['remarks']) ? (string) $visitor['remarks'] : null;
+
+        return [
+            'id' => (string) ($visitor['id'] ?? ''),
+            'first_name' => (string) ($visitor['first_name'] ?? ''),
+            'last_name' => (string) ($visitor['last_name'] ?? ''),
+            'pin' => self::pinFromRemark($remarks),
+            'start_time' => (int) ($visitor['start_time'] ?? 0),
+            'end_time' => (int) ($visitor['end_time'] ?? 0),
+            'status' => (string) ($visitor['status'] ?? ''),
+            'access_policy_ids' => $accessPolicyIds,
+            'resources' => $resources,
+        ];
     }
 
     private function visitorIdFromPin(string $pin): string

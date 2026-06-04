@@ -95,6 +95,16 @@ class UniFiAccessIO extends IPSModule
     }
 
     /**
+     * Alle Besucher als normalisierte Liste (paginiert über die API).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function GetAllVisitors(): array
+    {
+        return $this->getClient()->getAllVisitors();
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function UpdateVisitor(
