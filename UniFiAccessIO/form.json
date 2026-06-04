@@ -2,7 +2,7 @@
     "elements": [
         {
             "type": "Label",
-            "label": "Verbindung zur UniFi Access API (nur Besucher). API-Token unter Access → Einstellungen → API."
+            "label": "Verbindung zur UniFi Access Developer API (nur Besucher). API-Token unter Access → Einstellungen → Allgemein → Erweitert → API – nicht unter Control Plane → Integrationen (Network/Protect-Key funktioniert nicht)."
         },
         {
             "name": "Host",

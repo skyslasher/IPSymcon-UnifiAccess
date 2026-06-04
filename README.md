@@ -8,7 +8,32 @@ Die **PIN** dient als eindeutige Kennung (UID) und wird im Feld `remarks` als `P
 
 - IP-Symcon mit PHP 8.x und cURL
 - UniFi Access (getestet mit 4.2.x) auf UDM Pro
-- API-Token: UniFi OS → **Access** → **Einstellungen** → **API** (Port standardmäßig **12445**)
+- API-Port standardmäßig **12445** (HTTPS)
+
+## API-Token einrichten
+
+Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter Network/Protect (**Einstellungen → Control Plane → Integrationen**). Für dieses Modul brauchst du einen Token direkt in der Access-App:
+
+1. UniFi OS öffnen → **Access** starten
+2. **Einstellungen** → **Allgemein** → **Erweitert** → **API**
+3. Neuen API-Token anlegen und beim Erstellen diese Berechtigungen aktivieren:
+
+| Berechtigung | Zweck in diesem Modul |
+|--------------|------------------------|
+| `view:space` | Verbindungstest, Türen/Türgruppen |
+| `view:policy` | Zugangsprofile lesen (`GetAccessProfiles`) |
+| `view:visitor` | Besucher suchen und auslesen |
+| `edit:visitor` | Besucher anlegen, ändern, löschen |
+| `edit:credential` | PIN und QR-Code zuweisen |
+
+4. Token, Host (IP der UDM) und Port `12445` in der Instanz eintragen
+
+**Verbindungstest schlägt mit HTTP 401 fehl?**
+
+- Falscher Token-Typ (Network/Protect-Key statt Access-API-Token) – siehe Pfad oben
+- Token abgelaufen oder gelöscht – neuen Token anlegen
+- Fehlende Berechtigungen – mindestens `view:space` für den Test, alle fünf Keys für volle Funktion
+- Falscher Host/Port oder Firewall blockiert Port 12445
 
 ## Installation in IP-Symcon
 

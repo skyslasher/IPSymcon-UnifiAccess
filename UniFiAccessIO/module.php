@@ -29,8 +29,8 @@ class UniFiAccessIO extends IPSModule
     public function TestConnection(): bool
     {
         try {
-            $this->getClient()->getAccessProfiles();
-            $this->SendDebug('TestConnection', 'Verbindung erfolgreich.', 0);
+            $message = $this->getClient()->testConnection();
+            $this->SendDebug('TestConnection', $message, 0);
 
             return true;
         } catch (Throwable $e) {

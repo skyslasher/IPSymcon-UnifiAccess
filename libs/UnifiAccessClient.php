@@ -9,6 +9,10 @@ class UnifiAccessClient
 {
     public const PIN_REMARK_PREFIX = 'PIN:';
 
+    private const TOKEN_HELP = 'API-Token unter UniFi OS → Access → Einstellungen → Allgemein → Erweitert → API anlegen '
+        . '(nicht unter Einstellungen → Control Plane → Integrationen). '
+        . 'Benötigte Berechtigungen: view:space, view:policy, view:visitor, edit:visitor, edit:credential.';
+
     private string $host;
 
     private int $port;
@@ -41,6 +45,36 @@ class UnifiAccessClient
         }
 
         return null;
+    }
+
+    /**
+     * Prüft Host, Port und Token. Nutzt zuerst einen leichtgewichtigen Endpunkt (view:space),
+     * optional mit Hinweis wenn view:policy für Zugangsprofile fehlt.
+     */
+    public function testConnection(): string
+    {
+        $topology = $this->probe('GET', '/door_groups/topology');
+
+        if (!$topology['ok']) {
+            if ($this->isAuthOrPermissionError($topology['httpCode'])) {
+                throw new RuntimeException($this->authErrorMessage($topology['message']));
+            }
+
+            throw new RuntimeException($topology['message']);
+        }
+
+        $policies = $this->probe('GET', '/access_policies');
+
+        if (!$policies['ok']) {
+            if ($this->isAuthOrPermissionError($policies['httpCode'])) {
+                return 'Verbindung OK. Berechtigung view:policy fehlt – Zugangsprofile (GetAccessProfiles) sind nicht verfügbar. '
+                    . self::TOKEN_HELP;
+            }
+
+            throw new RuntimeException($policies['message']);
+        }
+
+        return 'Verbindung erfolgreich.';
     }
 
     /**
@@ -337,7 +371,13 @@ class UnifiAccessClient
         $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
         if ($httpCode < 200 || $httpCode >= 300) {
-            throw new RuntimeException('API-Fehler (HTTP ' . $httpCode . '): ' . ($decoded['msg'] ?? $raw));
+            $message = 'API-Fehler (HTTP ' . $httpCode . '): ' . ($decoded['msg'] ?? $raw);
+
+            if ($this->isAuthOrPermissionError($httpCode) && $path === '/access_policies') {
+                $message .= ' ' . self::TOKEN_HELP;
+            }
+
+            throw new RuntimeException($message);
         }
 
         if (($decoded['code'] ?? '') !== 'SUCCESS') {
@@ -350,6 +390,43 @@ class UnifiAccessClient
     private function baseUrl(): string
     {
         return sprintf('https://%s:%d/api/v1/developer', $this->host, $this->port);
+    }
+
+    /**
+     * @return array{ok: bool, httpCode: int, message: string}
+     */
+    private function probe(string $method, string $path): array
+    {
+        try {
+            $this->request($method, $path);
+
+            return ['ok' => true, 'httpCode' => 200, 'message' => ''];
+        } catch (RuntimeException $e) {
+            return [
+                'ok' => false,
+                'httpCode' => $this->httpCodeFromMessage($e->getMessage()),
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function isAuthOrPermissionError(int $httpCode): bool
+    {
+        return $httpCode === 401 || $httpCode === 403;
+    }
+
+    private function httpCodeFromMessage(string $message): int
+    {
+        if (preg_match('/HTTP (\d+)/', $message, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return 0;
+    }
+
+    private function authErrorMessage(string $detail): string
+    {
+        return 'Authentifizierung fehlgeschlagen (' . $detail . '). ' . self::TOKEN_HELP;
     }
 
     /**
