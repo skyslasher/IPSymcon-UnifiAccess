@@ -17,7 +17,7 @@ class UnifiAccessClient
 
     private const TOKEN_HELP = 'API-Token unter UniFi OS → Access → Einstellungen → Allgemein → Erweitert → API anlegen '
         . '(nicht unter Einstellungen → Control Plane → Integrationen). '
-        . 'Benötigte Berechtigungen: view:space, view:policy, view:visitor, edit:visitor, edit:credential.';
+        . 'Benötigte Berechtigungen: view:space, view:visitor, edit:visitor, edit:credential.';
 
     private string $host;
 
@@ -56,8 +56,7 @@ class UnifiAccessClient
     }
 
     /**
-     * Prüft Host, Port und Token. Nutzt zuerst einen leichtgewichtigen Endpunkt (view:space),
-     * optional mit Hinweis wenn view:policy für Zugangsprofile fehlt.
+     * Prüft Host, Port und Token über Türgruppen-Topology (view:space).
      */
     public function testConnection(): string
     {
@@ -69,18 +68,6 @@ class UnifiAccessClient
             }
 
             throw new RuntimeException($topology['message']);
-        }
-
-        $policies = $this->probe('GET', '/access_policies');
-
-        if (!$policies['ok']) {
-            if ($this->isAuthOrPermissionError($policies['httpCode'])) {
-                return 'Verbindung OK. Berechtigung view:policy fehlt – Zugangsprofile (GetAccessProfiles) für Policy-basiertes Anlegen nicht verfügbar. '
-                    . 'Türgruppen (GetDoorGroups) sind über view:space verfügbar. '
-                    . self::TOKEN_HELP;
-            }
-
-            throw new RuntimeException($policies['message']);
         }
 
         return 'Verbindung erfolgreich.';
@@ -150,28 +137,6 @@ class UnifiAccessClient
     }
 
     /**
-     * @return array<int, array{id: string, name: string}>
-     */
-    public function getAccessProfiles(): array
-    {
-        $response = $this->request('GET', '/access_policies');
-        $profiles = [];
-
-        foreach ($response['data'] ?? [] as $policy) {
-            if (!isset($policy['id'], $policy['name'])) {
-                continue;
-            }
-
-            $profiles[] = [
-                'id' => (string) $policy['id'],
-                'name' => (string) $policy['name'],
-            ];
-        }
-
-        return $profiles;
-    }
-
-    /**
      * @param array<string, mixed> $extra
      * @return array<string, mixed>
      */
@@ -180,12 +145,12 @@ class UnifiAccessClient
         string $pin,
         string $firstName,
         string $lastName,
-        string $accessPolicyId,
+        string $doorGroupId,
         int $startTime,
         int $endTime,
         array $extra = []
     ): array {
-        $resources = $this->resourcesFromAccessPolicy($accessPolicyId);
+        $resources = $this->resourcesFromDoorGroup($doorGroupId);
 
         $body = array_merge([
             'first_name' => $firstName,
@@ -336,7 +301,7 @@ class UnifiAccessClient
         string $bookingId,
         string $firstName,
         string $lastName,
-        string $accessPolicyId,
+        string $doorGroupId,
         int $startTime,
         int $endTime,
         array $extra = [],
@@ -353,7 +318,7 @@ class UnifiAccessClient
             'first_name' => $firstName,
             'last_name' => $lastName,
             'remarks' => self::bookingRemark($bookingId),
-            'resources' => $this->resourcesFromAccessPolicy($accessPolicyId),
+            'resources' => $this->resourcesFromDoorGroup($doorGroupId),
         ], $extra);
 
         if ($startTime > 0) {
@@ -701,30 +666,57 @@ class UnifiAccessClient
     }
 
     /**
+     * @return array{
+     *     id: string,
+     *     name: string,
+     *     type: 'building'|'door_group',
+     *     resource_topologies?: array<int, mixed>,
+     *     resources?: array<int, array{id: string, type: string, name?: string}>
+     * }|null
+     */
+    private function findDoorGroupById(string $doorGroupId): ?array
+    {
+        foreach ($this->getDoorGroups() as $group) {
+            if ($group['id'] === $doorGroupId) {
+                return $group;
+            }
+        }
+
+        try {
+            $response = $this->request('GET', '/door_groups/' . $doorGroupId);
+            $group = $response['data'] ?? null;
+
+            if (is_array($group) && isset($group['id'])) {
+                return $this->normalizeDoorGroupEntry($group);
+            }
+        } catch (RuntimeException) {
+            // Gruppe existiert nicht oder keine Berechtigung
+        }
+
+        return null;
+    }
+
+    /**
+     * Visitor-Ressourcen aus Türgruppen-ID (building oder door_group).
+     *
      * @return array<int, array{id: string, type: string}>
      */
-    private function resourcesFromAccessPolicy(string $accessPolicyId): array
+    private function resourcesFromDoorGroup(string $doorGroupId): array
     {
-        $response = $this->request('GET', '/access_policies/' . $accessPolicyId);
-        $policy = $response['data'] ?? [];
-        $resources = [];
+        $group = $this->findDoorGroupById($doorGroupId);
 
-        foreach ($policy['resources'] ?? [] as $resource) {
-            if (!isset($resource['id'], $resource['type'])) {
-                continue;
-            }
-
-            $resources[] = [
-                'id' => (string) $resource['id'],
-                'type' => (string) $resource['type'],
-            ];
+        if ($group === null) {
+            throw new RuntimeException('Türgruppe ' . $doorGroupId . ' nicht gefunden (UAF_GetDoorGroups).');
         }
 
-        if ($resources === []) {
-            throw new RuntimeException('Zugangsprofil ' . $accessPolicyId . ' enthält keine Ressourcen (Türen/Türgruppen).');
-        }
+        $resourceType = $group['type'] === 'building' ? 'building' : 'door_group';
 
-        return $resources;
+        return [
+            [
+                'id' => $doorGroupId,
+                'type' => $resourceType,
+            ],
+        ];
     }
 
     /**
@@ -787,10 +779,6 @@ class UnifiAccessClient
 
         if ($httpCode < 200 || $httpCode >= 300) {
             $message = 'API-Fehler (HTTP ' . $httpCode . '): ' . ($decoded['msg'] ?? $raw);
-
-            if ($this->isAuthOrPermissionError($httpCode) && $path === '/access_policies') {
-                $message .= ' ' . self::TOKEN_HELP;
-            }
 
             throw new RuntimeException($message);
         }

@@ -15,11 +15,11 @@ Wird `$pin` übergeben (nicht `null` und nicht leer), vergleicht das Modul die n
 1. optional `DELETE /visitors/:id/pin_codes`
 2. `PUT /visitors/:id/pin_codes` mit `{"pin_code":"..."}`
 
-Stammdaten (Name, Zeiten, Policy) werden weiterhin über `PUT /visitors/:id` aktualisiert; `remarks` bleibt `BOOKING:{bookingId}`.
+Stammdaten (Name, Zeiten, Türgruppe) werden weiterhin über `PUT /visitors/:id` aktualisiert; `remarks` bleibt `BOOKING:{bookingId}`.
 
 ## Türgruppen (`UAF_GetDoorGroups`)
 
-Für die Auswahl von Zugangsressourcen beim Anlegen von Besuchern ist die **Türgruppen-Liste** die primäre Funktion (Berechtigung `view:space`).
+Zugang für Besucher wird ausschließlich über **Türgruppen** vergeben (Berechtigung `view:space`). Die UUID aus `UAF_GetDoorGroups` ist der Parameter `$doorGroupId` bei `UAF_CreateVisitor` und `UAF_UpdateVisitor`.
 
 Quelle: `GET /api/v1/developer/door_groups/topology` (Gebäudegruppe „All Doors“ + benutzerdefinierte Gruppen), ergänzt um `GET /door_groups` falls einzelne `access`-Gruppen in der Topology fehlen.
 
@@ -27,13 +27,13 @@ Jeder Eintrag:
 
 | Feld | Beschreibung |
 |------|----------------|
-| `id` | UUID der Türgruppe (für `resources` bei Besuchern) |
+| `id` | UUID der Türgruppe (Parameter `$doorGroupId` bei Create/Update) |
 | `name` | Anzeigename (z. B. „All Doors“, „Eingang Nord“) |
 | `type` | `building` = alle Türen des Standorts; `door_group` = benutzerdefinierte Gruppe (API-Typ `access`) |
 | `resource_topologies` | optional: Etagen und Türen (nur aus Topology, bei `building` und oft bei Gruppen) |
 | `resources` | optional: flache Tür-IDs (aus `GET /door_groups`, wenn vorhanden) |
 
-`UAF_GetAccessProfiles` bleibt für **Policy-basiertes** Anlegen über `UAF_CreateVisitor` (Parameter `$policyId` → Ressourcen aus der Access Policy). Für direkte Türgruppen-Zuweisung an Besucher ist die Visitor-API künftig erweiterbar – aktuell nur Listing.
+Beim Anlegen wird die Visitor-Ressource als `{id, type}` gesetzt: `type: building` für „All Doors“, sonst `type: door_group`.
 
 ## Voraussetzungen
 
@@ -52,7 +52,6 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 | Berechtigung | Zweck in diesem Modul |
 |--------------|------------------------|
 | `view:space` | Verbindungstest, Türgruppen (`GetDoorGroups`) |
-| `view:policy` | Zugangsprofile lesen (`GetAccessProfiles`, nur für Policy-basiertes CreateVisitor) |
 | `view:visitor` | Besucher suchen und auslesen |
 | `edit:visitor` | Besucher anlegen, ändern, löschen |
 | `edit:credential` | PIN und QR-Code zuweisen |
@@ -63,7 +62,7 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 
 - Falscher Token-Typ (Network/Protect-Key statt Access-API-Token) – siehe Pfad oben
 - Token abgelaufen oder gelöscht – neuen Token anlegen
-- Fehlende Berechtigungen – mindestens `view:space` für den Test und Türgruppen, alle fünf Keys für volle Funktion inkl. Policy-Anlegen
+- Fehlende Berechtigungen – mindestens `view:space` für den Test und Türgruppen, alle vier Keys für volle Funktion
 - Falscher Host/Port oder Firewall blockiert Port 12445
 
 ## Installation in IP-Symcon
@@ -75,6 +74,14 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 2. In IP-Symcon: **Modulverwaltung** → **Modul hinzufügen** → Pfad zum Repository-Ordner
 3. **Instanz hinzufügen** → **UniFi Access IO**
 4. Host (IP der UDM), Port `12445`, API-Token eintragen, SSL-Prüfung bei selbstsigniertem Zertifikat deaktivieren
+
+## Migration Build 4 → 5 (Türgruppen statt Access Policy)
+
+Ab Build 5 verwenden `UAF_CreateVisitor` und `UAF_UpdateVisitor` **`$doorGroupId`** statt `$policyId`. `UAF_GetAccessProfiles` entfällt.
+
+1. `UAF_GetDoorGroups($io)` aufrufen und passende `id` wählen
+2. Skripte anpassen: fünfter Parameter bei Create/Update ist die Türgruppen-UUID
+3. Veraltete Alias-Funktionen (`UAF_CreateUser` / `UAF_UpdateUser`): Parameter 4 ist ebenfalls `$doorGroupId`
 
 ## Migration von Build 2 (PIN als UID)
 
@@ -93,18 +100,17 @@ Die veraltete Funktion `UAF_FindVisitorByPin` findet weiterhin Besucher mit Lega
 |----------|--------------|
 | `UAF_TestConnection($InstanceID)` | API-Verbindung prüfen (auch über Button in der Instanzkonfiguration nach „Übernehmen“) |
 | `UAF_GetDoorGroups($InstanceID)` | Türgruppen: `id`, `name`, `type` (`building` / `door_group`), optional `resource_topologies` / `resources` |
-| `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) – für `CreateVisitor` mit `$policyId` |
-| `UAF_CreateVisitor($InstanceID, $bookingId, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen: Booking-ID in remarks, PIN über Credential-Ressource |
+| `UAF_CreateVisitor($InstanceID, $bookingId, $pin, $vorname, $nachname, $doorGroupId, $start, $ende, $email, $telefon)` | Besucher anlegen: Booking-ID in remarks, Zugang über Türgruppe, PIN über Credential-Ressource |
 | `UAF_FindVisitorByBookingId($InstanceID, $bookingId)` | Besucher anhand Booking-ID finden |
 | `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, `booking_id`, Zeiten, Status, Ressourcen – ohne PIN-Felder) |
-| `UAF_UpdateVisitor($InstanceID, $bookingId, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon, $pin)` | Besucher ändern; `$pin` optional – bei Angabe PIN über Credential-Ressource neu setzen |
+| `UAF_UpdateVisitor($InstanceID, $bookingId, $vorname, $nachname, $doorGroupId, $start, $ende, $email, $telefon, $pin)` | Besucher ändern; `$pin` optional – bei Angabe PIN über Credential-Ressource neu setzen |
 | `UAF_DeleteVisitor($InstanceID, $bookingId)` | Besucher löschen |
 | `UAF_CreateQrCode($InstanceID, $bookingId)` | QR-Code für Besucher erzeugen |
 | `UAF_DownloadQrCode($InstanceID, $bookingId, $zielPfad)` | QR-Code als Datei speichern |
 
 **Veraltet:** `UAF_FindVisitorByPin` – Suche nach Klartext-PIN (Legacy).
 
-**Alias** (ältere Benennung): `UAF_CreateUser`, `UAF_FindUserByPin`, `UAF_UpdateUser`, `UAF_DeleteUser` – rufen veraltete bzw. kompatible Besucher-Funktionen auf.
+**Alias** (ältere Benennung): `UAF_CreateUser`, `UAF_FindUserByPin`, `UAF_UpdateUser`, `UAF_DeleteUser` – rufen veraltete bzw. kompatible Besucher-Funktionen auf (Parameter 4 bei Create/Update = `$doorGroupId`).
 
 ### Beispiel
 
@@ -118,16 +124,14 @@ foreach ($groups as $group) {
     echo $group['name'] . ' [' . $group['type'] . '] → ' . $group['id'] . "\n";
 }
 
-// Policy-basiertes Anlegen (weiterhin über Access Profile):
-$profile = UAF_GetAccessProfiles($io);
-$policyId = $profile[0]['id'];
+$doorGroupId = $groups[0]['id']; // z. B. „All Doors“ (type building) oder benutzerdefinierte Gruppe
 
-UAF_CreateVisitor($io, $bookingId, $pin, 'Max', 'Mustermann', $policyId, time(), time() + 86400 * 7);
+UAF_CreateVisitor($io, $bookingId, $pin, 'Max', 'Mustermann', $doorGroupId, time(), time() + 86400 * 7);
 
 $visitor = UAF_FindVisitorByBookingId($io, $bookingId);
 
 // PIN ändern
-UAF_UpdateVisitor($io, $bookingId, 'Max', 'Mustermann', $policyId, 0, 0, '', '', '99887766');
+UAF_UpdateVisitor($io, $bookingId, 'Max', 'Mustermann', $doorGroupId, 0, 0, '', '', '99887766');
 
 $alle = UAF_GetAllVisitors($io);
 foreach ($alle as $eintrag) {

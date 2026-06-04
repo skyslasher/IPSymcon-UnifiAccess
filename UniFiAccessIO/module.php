@@ -51,16 +51,6 @@ class UniFiAccessIO extends IPSModule
     }
 
     /**
-     * Zugangsprofile (Access Policies) mit ID und Name – für Policy-basiertes Anlegen (CreateVisitor).
-     *
-     * @return array<int, array{id: string, name: string}>
-     */
-    public function GetAccessProfiles(): array
-    {
-        return $this->getClient()->getAccessProfiles();
-    }
-
-    /**
      * Besucher anlegen: Booking-ID in remarks, PIN über Credential-Ressource.
      *
      * @return array<string, mixed>
@@ -70,7 +60,7 @@ class UniFiAccessIO extends IPSModule
         string $pin,
         string $firstName,
         string $lastName,
-        string $accessPolicyId,
+        string $doorGroupId,
         int $startTime = 0,
         int $endTime = 0,
         string $email = '',
@@ -91,7 +81,7 @@ class UniFiAccessIO extends IPSModule
             $pin,
             $firstName,
             $lastName,
-            $accessPolicyId,
+            $doorGroupId,
             $startTime,
             $endTime,
             $extra
@@ -135,7 +125,7 @@ class UniFiAccessIO extends IPSModule
         string $bookingId,
         string $firstName,
         string $lastName,
-        string $accessPolicyId,
+        string $doorGroupId,
         int $startTime = 0,
         int $endTime = 0,
         string $email = '',
@@ -156,7 +146,7 @@ class UniFiAccessIO extends IPSModule
             $bookingId,
             $firstName,
             $lastName,
-            $accessPolicyId,
+            $doorGroupId,
             $startTime,
             $endTime,
             $extra,
@@ -182,17 +172,17 @@ class UniFiAccessIO extends IPSModule
         return $this->getClient()->downloadQrCode($bookingId, $targetPath);
     }
 
-    /** @deprecated Alias für CreateVisitor (PIN dient als Booking-ID) */
+    /** @deprecated Alias für CreateVisitor (PIN dient als Booking-ID; Parameter 4 = $doorGroupId) */
     public function CreateUser(
         string $pin,
         string $firstName,
         string $lastName,
-        string $accessPolicyId,
+        string $doorGroupId,
         int $startTime = 0,
         int $endTime = 0,
         string $email = ''
     ): array {
-        return $this->CreateVisitor($pin, $pin, $firstName, $lastName, $accessPolicyId, $startTime, $endTime, $email);
+        return $this->CreateVisitor($pin, $pin, $firstName, $lastName, $doorGroupId, $startTime, $endTime, $email);
     }
 
     /** @deprecated Alias für FindVisitorByPin */
@@ -201,17 +191,17 @@ class UniFiAccessIO extends IPSModule
         return $this->FindVisitorByPin($pin);
     }
 
-    /** @deprecated Alias für UpdateVisitor (erster Parameter = frühere PIN-UID als Booking-ID) */
+    /** @deprecated Alias für UpdateVisitor (erster Parameter = frühere PIN-UID als Booking-ID; Parameter 4 = $doorGroupId) */
     public function UpdateUser(
         string $pin,
         string $firstName,
         string $lastName,
-        string $accessPolicyId,
+        string $doorGroupId,
         int $startTime = 0,
         int $endTime = 0,
         string $email = ''
     ): array {
-        return $this->UpdateVisitor($pin, $firstName, $lastName, $accessPolicyId, $startTime, $endTime, $email);
+        return $this->UpdateVisitor($pin, $firstName, $lastName, $doorGroupId, $startTime, $endTime, $email);
     }
 
     /** @deprecated Alias für DeleteVisitor */
