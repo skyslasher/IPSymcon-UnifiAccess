@@ -14,7 +14,7 @@ Die **PIN** dient als eindeutige Kennung (UID) und wird im Feld `remarks` als `P
 
 1. Repository klonen oder ZIP laden:
    ```bash
-   git clone https://github.com/IHR_USER/IPSymcon-UnifiAccess.git
+   git clone https://github.com/skyslasher/IPSymcon-UnifiAccess.git
    ```
 2. In IP-Symcon: **Modulverwaltung** → **Modul hinzufügen** → Pfad zum Repository-Ordner
 3. **Instanz hinzufügen** → **UniFi Access IO**
@@ -63,7 +63,7 @@ cd IPSymcon-UnifiAccess
 git add .
 git commit -m "Initial commit: UniFi Access Besucher-Modul für IP-Symcon"
 git branch -M main
-git remote add origin https://github.com/IHR_USER/IPSymcon-UnifiAccess.git
+git remote add origin https://github.com/skyslasher/IPSymcon-UnifiAccess.git
 git push -u origin main
 ```
 
