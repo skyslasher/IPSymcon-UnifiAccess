@@ -161,9 +161,9 @@ class UnifiAccessClient
                     continue;
                 }
 
-                $visitor = $this->ensureVisitorRemarks($visitor);
+                $visitor = $this->enrichVisitorWithPin($visitor);
 
-                if (self::pinFromRemark(isset($visitor['remarks']) ? (string) $visitor['remarks'] : null) === $pin) {
+                if (self::pinFromRemark($this->visitorRemarks($visitor)) === $pin) {
                     return $visitor;
                 }
             }
@@ -181,6 +181,7 @@ class UnifiAccessClient
      *     first_name: string,
      *     last_name: string,
      *     pin: string|null,
+     *     pin_code_token?: string,
      *     start_time: int,
      *     end_time: int,
      *     status: string,
@@ -206,7 +207,7 @@ class UnifiAccessClient
                     continue;
                 }
 
-                $visitors[] = $this->normalizeVisitorEntry($this->ensureVisitorRemarks($visitor));
+                $visitors[] = $this->normalizeVisitorEntry($this->enrichVisitorWithPin($visitor));
             }
 
             $total = (int) ($response['pagination']['total'] ?? 0);
@@ -318,30 +319,132 @@ class UnifiAccessClient
     }
 
     /**
-     * List responses often omit remarks; detail GET includes it (plain PIN is only stored there).
+     * Resolves plaintext PIN: remarks (PIN:xxx), then GET /visitors/:id, then GET /visitors/:id/pin_codes.
+     * List entries often have empty remarks; pin_code expand only exposes token (hash).
      *
      * @param array<string, mixed> $visitor
      * @return array<string, mixed>
      */
-    private function ensureVisitorRemarks(array $visitor): array
+    private function enrichVisitorWithPin(array $visitor): array
     {
-        if (array_key_exists('remarks', $visitor)) {
-            return $visitor;
-        }
-
         $visitorId = $visitor['id'] ?? null;
 
         if ($visitorId === null || $visitorId === '') {
             return $visitor;
         }
 
-        $detail = $this->getVisitor((string) $visitorId);
+        $visitorId = (string) $visitorId;
+        $pin = self::pinFromRemark($this->visitorRemarks($visitor));
 
-        if (array_key_exists('remarks', $detail)) {
-            $visitor['remarks'] = $detail['remarks'];
+        if ($pin === null || !$this->hasPinCodeObject($visitor)) {
+            $visitor = array_merge($visitor, $this->getVisitor($visitorId));
+            $pin = self::pinFromRemark($this->visitorRemarks($visitor));
+        }
+
+        if ($pin === null) {
+            $pin = $this->plainPinFromPinCodeObject($visitor['pin_code'] ?? null);
+        }
+
+        if ($pin === null) {
+            $pinResource = $this->fetchVisitorPinCodeResource($visitorId);
+
+            if ($pinResource !== null) {
+                $visitor['pin_code'] = array_merge(
+                    is_array($visitor['pin_code'] ?? null) ? $visitor['pin_code'] : [],
+                    $pinResource
+                );
+                $pin = $this->plainPinFromPinCodeObject($pinResource);
+            }
         }
 
         return $visitor;
+    }
+
+    /**
+     * @param array<string, mixed> $visitor
+     */
+    private function visitorRemarks(array $visitor): ?string
+    {
+        if (!array_key_exists('remarks', $visitor)) {
+            return null;
+        }
+
+        $remarks = (string) $visitor['remarks'];
+
+        return $remarks !== '' ? $remarks : null;
+    }
+
+    /**
+     * @param array<string, mixed> $visitor
+     */
+    private function hasPinCodeObject(array $visitor): bool
+    {
+        return isset($visitor['pin_code']) && is_array($visitor['pin_code']) && $visitor['pin_code'] !== [];
+    }
+
+    /**
+     * Undocumented read endpoint; returns null on 404 or missing permission.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function fetchVisitorPinCodeResource(string $visitorId): ?array
+    {
+        try {
+            $response = $this->request('GET', '/visitors/' . $visitorId . '/pin_codes');
+            $data = $response['data'] ?? null;
+
+            if (is_array($data)) {
+                return $data;
+            }
+
+            if (is_string($data) && $data !== '') {
+                return ['pin_code' => $data];
+            }
+        } catch (RuntimeException) {
+            // GET not supported or no PIN assigned
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $pinCode
+     */
+    private function plainPinFromPinCodeObject($pinCode): ?string
+    {
+        if (!is_array($pinCode)) {
+            return null;
+        }
+
+        foreach (['pin_code', 'code', 'value', 'pin'] as $key) {
+            if (!isset($pinCode[$key]) || !is_string($pinCode[$key]) || $pinCode[$key] === '') {
+                continue;
+            }
+
+            $value = $pinCode[$key];
+
+            if (preg_match('/^[a-f0-9]{64}$/i', $value) === 1) {
+                continue;
+            }
+
+            return $value;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $pinCode
+     */
+    private function pinCodeTokenFromObject($pinCode): ?string
+    {
+        if (!is_array($pinCode) || !isset($pinCode['token'])) {
+            return null;
+        }
+
+        $token = (string) $pinCode['token'];
+
+        return $token !== '' ? $token : null;
     }
 
     /**
@@ -351,6 +454,7 @@ class UnifiAccessClient
      *     first_name: string,
      *     last_name: string,
      *     pin: string|null,
+     *     pin_code_token?: string,
      *     start_time: int,
      *     end_time: int,
      *     status: string,
@@ -395,19 +499,32 @@ class UnifiAccessClient
             $resources[] = $entry;
         }
 
-        $remarks = array_key_exists('remarks', $visitor) ? (string) $visitor['remarks'] : null;
+        $remarks = $this->visitorRemarks($visitor);
+        $pin = self::pinFromRemark($remarks);
 
-        return [
+        if ($pin === null) {
+            $pin = $this->plainPinFromPinCodeObject($visitor['pin_code'] ?? null);
+        }
+
+        $entry = [
             'id' => (string) ($visitor['id'] ?? ''),
             'first_name' => (string) ($visitor['first_name'] ?? ''),
             'last_name' => (string) ($visitor['last_name'] ?? ''),
-            'pin' => self::pinFromRemark($remarks),
+            'pin' => $pin,
             'start_time' => (int) ($visitor['start_time'] ?? 0),
             'end_time' => (int) ($visitor['end_time'] ?? 0),
             'status' => (string) ($visitor['status'] ?? ''),
             'access_policy_ids' => $accessPolicyIds,
             'resources' => $resources,
         ];
+
+        $pinCodeToken = $this->pinCodeTokenFromObject($visitor['pin_code'] ?? null);
+
+        if ($pinCodeToken !== null && $pin === null) {
+            $entry['pin_code_token'] = $pinCodeToken;
+        }
+
+        return $entry;
     }
 
     private function visitorIdFromPin(string $pin): string

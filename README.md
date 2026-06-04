@@ -2,7 +2,14 @@
 
 IP-Symcon-Bibliothek zur Anbindung von **UniFi Access** über die Developer API. Verwaltet ausschließlich **Besucher** (Visitor API), nicht reguläre Access-Benutzer.
 
-Die **PIN** dient als eindeutige Kennung (UID) und wird im Feld `remarks` als `PIN:123456` gespeichert. `expand[]=pin_code` liefert nur den PIN-Hash (`pin_code.token`), nicht die Klartext-PIN. `GET /visitors` (Liste) enthält `remarks` oft nicht; `UAF_GetAllVisitors` und die PIN-Suche laden sie bei Bedarf über `GET /visitors/:id` nach.
+Die **PIN** dient als eindeutige Kennung (UID) und wird beim Anlegen im Feld `remarks` als `PIN:123456` gespeichert sowie über `PUT /visitors/:id/pin_codes` zugewiesen. Die UniFi-API liefert die Klartext-PIN **nicht** über `expand[]=pin_code` (nur `pin_code.token`, ein Hash). `GET /visitors` (Liste) enthält `remarks` oft leer oder gar nicht.
+
+`UAF_GetAllVisitors` und die PIN-Suche reichern jeden Besucher deshalb explizit an:
+
+1. `GET /visitors/:id?expand[]=pin_code` – Detail inkl. `remarks` und PIN-Hash
+2. `GET /visitors/:id/pin_codes` – optional, falls die API Klartext zurückgibt (undokumentiert)
+
+Ist nur ein Hash verfügbar, enthält der normalisierte Eintrag optional `pin_code_token`. Besucher ohne `PIN:` in `remarks` (z. B. manuell in UniFi angelegt) haben `pin: null` – erwartetes Verhalten.
 
 ## Voraussetzungen
 
@@ -53,7 +60,7 @@ Der **Access Developer API-Token** ist **nicht** derselbe Schlüssel wie unter N
 | `UAF_GetAccessProfiles($InstanceID)` | Zugangsprofile (Access Policies) als Liste mit `id` und `name` |
 | `UAF_CreateVisitor($InstanceID, $pin, $vorname, $nachname, $policyId, $start, $ende, $email, $telefon)` | Besucher anlegen, Ressourcen aus Policy, PIN zuweisen |
 | `UAF_FindVisitorByPin($InstanceID, $pin)` | Besucher anhand PIN finden |
-| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, PIN aus `remarks` – ggf. Detail-Abfrage pro Eintrag, Zeiten, Status, Ressourcen) |
+| `UAF_GetAllVisitors($InstanceID)` | Alle Besucher als normalisierte Liste (`id`, Name, `pin` aus `remarks`/PIN-Ressource, optional `pin_code_token`, Zeiten, Status, Ressourcen) |
 | `UAF_UpdateVisitor(...)` | Besucher ändern |
 | `UAF_DeleteVisitor($InstanceID, $pin)` | Besucher löschen |
 | `UAF_CreateQrCode($InstanceID, $pin)` | QR-Code für Besucher erzeugen |
