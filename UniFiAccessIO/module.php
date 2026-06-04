@@ -23,46 +23,7 @@ class UniFiAccessIO extends IPSModule
 
     public function GetConfigurationForm()
     {
-        $this->UpdateFormField('Host', 'validate', IPS_ValidateLength(1, 255));
-        $this->UpdateFormField('ApiToken', 'validate', IPS_ValidateLength(1, 512));
-
-        return json_encode([
-            'elements' => [
-                [
-                    'type' => 'Label',
-                    'label' => 'Verbindung zur UniFi Access API (nur Besucher). API-Token unter Access → Einstellungen → API.',
-                ],
-                [
-                    'name' => 'Host',
-                    'type' => 'ValidationTextBox',
-                    'caption' => 'Host (IP oder Hostname der UDM)',
-                ],
-                [
-                    'name' => 'Port',
-                    'type' => 'NumberSpinner',
-                    'caption' => 'API-Port',
-                    'minimum' => 1,
-                    'maximum' => 65535,
-                ],
-                [
-                    'name' => 'ApiToken',
-                    'type' => 'PasswordTextBox',
-                    'caption' => 'API-Token',
-                ],
-                [
-                    'name' => 'VerifySSL',
-                    'type' => 'CheckBox',
-                    'caption' => 'SSL-Zertifikat prüfen',
-                ],
-            ],
-            'actions' => [
-                [
-                    'type' => 'Test',
-                    'label' => 'Verbindung testen',
-                    'onClick' => 'UAF_TestConnection();',
-                ],
-            ],
-        ]);
+        return file_get_contents(__DIR__ . '/form.json');
     }
 
     public function TestConnection(): bool

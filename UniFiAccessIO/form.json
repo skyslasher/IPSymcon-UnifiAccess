@@ -2,27 +2,31 @@
     "elements": [
         {
             "type": "Label",
-            "label": "UniFi Access – ausschließlich Besucher (Visitor API). PIN wird in remarks als PIN:xxxx gespeichert."
+            "label": "Verbindung zur UniFi Access API (nur Besucher). API-Token unter Access → Einstellungen → API."
         },
         {
             "name": "Host",
             "type": "ValidationTextBox",
-            "caption": "Host"
+            "caption": "Host (IP oder Hostname der UDM)",
+            "validate": "^.{1,255}$"
         },
         {
             "name": "Port",
             "type": "NumberSpinner",
-            "caption": "Port"
+            "caption": "API-Port",
+            "minimum": 1,
+            "maximum": 65535
         },
         {
             "name": "ApiToken",
             "type": "PasswordTextBox",
-            "caption": "API-Token"
+            "caption": "API-Token",
+            "validate": "^.{1,512}$"
         },
         {
             "name": "VerifySSL",
             "type": "CheckBox",
-            "caption": "SSL prüfen"
+            "caption": "SSL-Zertifikat prüfen"
         }
     ],
     "actions": [
